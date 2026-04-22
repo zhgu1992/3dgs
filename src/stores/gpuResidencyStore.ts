@@ -10,6 +10,7 @@ export class GpuResidencyStore {
   private totalUploadedSplats = 0;
 
   enqueuePendingBatch(batch: DecodedBatch): void {
+    // 只维护 FIFO 入队，不在 store 内做上传策略决策。
     this.pendingBatches.push(batch);
   }
 
@@ -57,6 +58,7 @@ export class GpuResidencyStore {
     }
 
     if (this.pendingHead > 0 && this.pendingHead >= this.pendingBatches.length) {
+      // 批次全部消费后重置数组与游标，避免长时间保留旧引用。
       this.pendingBatches = [];
       this.pendingHead = 0;
     }

@@ -28,6 +28,7 @@ function readFloat32LE(carry: Uint8Array, chunk: Uint8Array, carryLength: number
   }
 
   const temp = new Uint8Array(4);
+  // 跨 carry/chunk 边界时拷贝 4 字节后再按 little-endian 读取。
   for (let i = 0; i < 4; i += 1) {
     temp[i] = readByte(carry, chunk, carryLength, absoluteOffset + i);
   }
@@ -138,6 +139,7 @@ ctx.onmessage = (event: MessageEvent<PlyDecodeRequest>) => {
   };
 
   const transferables: ArrayBuffer[] = [positions.buffer, colors.buffer, opacities.buffer];
+  // 批次数组与 carry 都走 transferable，减少 worker 往返拷贝成本。
   if (response.nextCarry && response.nextCarry.buffer instanceof ArrayBuffer) {
     transferables.push(response.nextCarry.buffer);
   }

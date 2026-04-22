@@ -20,6 +20,7 @@ function emptyRange(): ByteRange {
   };
 }
 
+// 流式读取时可能出现“header/record 跨 chunk”，这里做轻量拼接。
 function concatUint8Arrays(
   left: Uint8Array<ArrayBufferLike>,
   right: Uint8Array<ArrayBufferLike>
@@ -132,6 +133,7 @@ export class RealPlyIngestScheduler {
   ): Promise<void> {
     let currentChunk = chunk;
     while (true) {
+      // 限制单次 worker 解码上限，主线程可持续消费批次。
       const remainingVertices = Math.max(0, layout.vertexCount - state.nextStart);
       if (remainingVertices === 0) {
         state.carry = null;
@@ -139,6 +141,7 @@ export class RealPlyIngestScheduler {
       }
       const response = await this.decodeBatch(layout, state.nextStart, remainingVertices, currentChunk, state.carry);
       if (response.batch.count === 0) {
+        // 当前字节不足一个完整顶点，等待下一段 chunk 再拼接。
         state.carry = response.nextCarry;
         state.totalDecodeMs += response.decodeMs;
         return;
@@ -160,6 +163,7 @@ export class RealPlyIngestScheduler {
         return;
       }
 
+      // 当前 chunk 已吃完，但 carry 里可能还能再解一批，继续 drain。
       currentChunk = emptyRange();
     }
   }
@@ -193,6 +197,7 @@ export class RealPlyIngestScheduler {
           }
 
           if (!layout) {
+            // 先累计 header，拿到布局后再进入 body 解码。
             headerAccumulator = concatUint8Arrays(headerAccumulator, value);
             const headerByteLength = detectPlyHeaderByteLength(headerAccumulator);
             if (headerByteLength < 0) {
@@ -209,6 +214,7 @@ export class RealPlyIngestScheduler {
             continue;
           }
 
+          // header 已确定，后续 chunk 直接推进解码队列。
           await this.flushBatchQueue(layout, onBatch, toByteRangeView(value), state);
         }
       } finally {
@@ -237,6 +243,7 @@ export class RealPlyIngestScheduler {
     }
 
     if (state.carry && state.carry.byteLength >= layout.stride) {
+      // 流结束后再尝试冲刷一次，避免漏掉尾部完整记录。
       await this.flushBatchQueue(layout, onBatch, emptyRange(), state);
     }
 

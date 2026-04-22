@@ -27,6 +27,7 @@ const CONFIG = {
 } as const;
 
 export async function bootstrap(): Promise<void> {
+  // 全屏 canvas：当前项目只有一个渲染目标，直接铺满视口。
   const canvas = document.createElement('canvas');
   canvas.style.position = 'fixed';
   canvas.style.inset = '0';
@@ -62,6 +63,7 @@ export async function bootstrap(): Promise<void> {
   const chunkMeta: Array<{ id: number; start: number; count: number }> = [];
   let ingestMetrics: PlyIngestMetrics | null = null;
 
+  // 2C 之前先走线性 chunk，可见集在每次驻留更新后重算。
   const refreshVisibleSet = (): void => {
     const visibleSet = visibility.computeVisibleSet(cameraStore.get(), chunkTable, {
       maxActiveSplats: CONFIG.maxActiveSplats
@@ -70,6 +72,7 @@ export async function bootstrap(): Promise<void> {
   };
 
   if (ingest instanceof RealPlyIngestScheduler) {
+    // 实际 PLY 解码在后台持续产出批次，主线程只负责入队。
     void ingest
       .ingest(CONFIG.plyUrl, {
         onBatch: (batch) => {
@@ -84,6 +87,7 @@ export async function bootstrap(): Promise<void> {
         console.error('PLY ingest failed', error);
       });
   } else if (ingest instanceof MockIngestScheduler) {
+    // mock 路径保持同一套“先入队、再按帧上传”的节奏，便于回归对比。
     void (async () => {
       for (let i = 0; i < CONFIG.mockBatchCount; i += 1) {
         const start = i * CONFIG.mockBatchSize;
@@ -121,6 +125,7 @@ export async function bootstrap(): Promise<void> {
     const inputSnapshot = input.snapshot();
     const camera = fpsController.updateFpsController(inputSnapshot, dtMs / 1000);
 
+    // 每帧限额上传，避免一次性上传导致主线程长时间阻塞。
     const uploadDrain = gpuResidencyStore.drainPendingUploads(CONFIG.maxUploadBatchesPerFrame, (batch) => {
       const range = renderer.uploadBatch(batch);
       chunkMeta.push({ id: chunkId, start: range.start, count: range.count });
@@ -130,6 +135,7 @@ export async function bootstrap(): Promise<void> {
     lastUploadMs = uploadDrain.uploadMs;
     pendingBatches = uploadDrain.pendingBatches;
     if (uploadDrain.uploadedBatches > 0) {
+      // 只有驻留集合变化时才更新 chunk/visible，减少不必要计算。
       uploadedSplats = uploadDrain.totalUploadedSplats;
       chunkTable = chunkBuilder.buildChunkIndex(chunkMeta);
       refreshVisibleSet();
@@ -141,6 +147,7 @@ export async function bootstrap(): Promise<void> {
       !depthSorter.isBusy();
 
     if (shouldSort) {
+      // 排序异步执行：渲染线程用 front buffer，worker 产出 back buffer。
       lastSortKick = now;
       void depthSorter.sort(sceneSetStore.getActiveIds(), renderer.getPositions(), camera).then((result) => {
         sortStateStore.setBack(result.indices);

@@ -191,6 +191,7 @@ export class SplatRendererWebGL2 {
     const start = this.count;
     const nextCount = this.count + decodedBatch.count;
 
+    // 先扩容 CPU 侧连续数组，再整体上传到 GPU buffer。
     const nextPositions = new Float32Array(nextCount * 3);
     nextPositions.set(this.positions);
     nextPositions.set(decodedBatch.positions, start * 3);
@@ -209,6 +210,7 @@ export class SplatRendererWebGL2 {
     this.colors = nextColors;
 
     this.count = nextCount;
+    // 新增数据后先回退为顺序索引，等待排序结果覆盖。
     this.sortedIndices = makeIdentityIndices(this.count);
 
     const gl = this.gl;
@@ -234,6 +236,7 @@ export class SplatRendererWebGL2 {
 
   renderFrame(camera: CameraState, sortedIndices: Uint32Array | null, uploadedSplats: number, dtMs: number): FrameStats {
     if (sortedIndices && sortedIndices.length > 0) {
+      // 有新排序结果时，替换当前索引缓冲。
       this.updateSortedIndices(sortedIndices);
     } else if (this.sortedIndices.length !== this.count) {
       this.sortedIndices = makeIdentityIndices(this.count);
@@ -249,6 +252,7 @@ export class SplatRendererWebGL2 {
     gl.clear(gl.COLOR_BUFFER_BIT);
 
     if (this.useEllipseShader) {
+      // 椭圆路径先在 CPU 组装实例参数，再一次性 instanced draw。
       const discardStats = this.updateEllipseBuffers(camera, drawCount);
       gl.useProgram(this.ellipseProgram);
       gl.uniformMatrix4fv(this.uEllipseViewProjection, false, camera.viewProjection);

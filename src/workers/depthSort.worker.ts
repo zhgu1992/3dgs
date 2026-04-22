@@ -51,6 +51,7 @@ function ensureCapacity(required: number): void {
 }
 
 function floatToSortableUint(value: number): number {
+  // 把 float 深度映射到可按无符号整数比较的序空间。
   depthBitsFloat[0] = value;
   const bits = depthBitsUint[0];
   return (bits & 0x80000000) !== 0 ? (~bits >>> 0) : ((bits ^ 0x80000000) >>> 0);
@@ -84,6 +85,7 @@ ctx.onmessage = (event: MessageEvent<SortRequest>) => {
   let dstIds = idsB;
 
   for (let pass = 0; pass < PASSES; pass += 1) {
+    // LSD radix：每轮处理 8bit，共 4 轮覆盖 uint32 key。
     counts.fill(0);
     const shift = pass * 8;
 

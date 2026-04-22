@@ -11,6 +11,7 @@ export class BasicFpsController implements FpsController {
     const speed = input.speedBoost ? 8 : 3;
     const distance = speed * dt;
 
+    // 鼠标输入直接累积 yaw/pitch，并限制 pitch 防止翻转。
     const yaw = state.yaw - input.lookDeltaX * 0.0025;
     const pitch = Math.max(-1.4, Math.min(1.4, state.pitch - input.lookDeltaY * 0.0025));
 
@@ -23,6 +24,7 @@ export class BasicFpsController implements FpsController {
     const right = vec3.fromValues(Math.cos(yaw), 0, -Math.sin(yaw));
     vec3.normalize(right, right);
 
+    // 位置更新全部在世界空间完成，再重建 view 矩阵。
     vec3.scaleAndAdd(nextPosition, nextPosition, forward, input.forward * distance);
     vec3.scaleAndAdd(nextPosition, nextPosition, right, input.right * distance);
     nextPosition[1] += input.up * distance;
