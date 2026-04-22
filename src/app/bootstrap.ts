@@ -14,8 +14,8 @@ import { SortStateStore } from '../stores/sortStateStore';
 import { StatsOverlay } from '../debug/statsOverlay';
 
 const CONFIG = {
-  useRealPly: false,
-  useEllipseShader: false,
+  useRealPly: true,
+  useEllipseShader: true,
   plyUrl: '/data/400w_3jie.ply',
   batchSize: 65_536,
   maxActiveSplats: 90_000,
