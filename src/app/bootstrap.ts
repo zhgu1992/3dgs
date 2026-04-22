@@ -1,6 +1,8 @@
 import { BasicFpsController } from '../interaction/fpsController';
 import { InputController } from '../interaction/inputController';
 import { MockIngestScheduler } from '../ingest/mockIngestScheduler';
+import { createPlyIngestScheduler, RealPlyIngestScheduler } from '../ingest/plyIngestScheduler';
+import type { PlyIngestMetrics } from '../ingest/plyProtocol';
 import { SplatRendererWebGL2 } from '../render/splatRendererWebgl2';
 import { LinearChunkIndexBuilder } from '../scene/chunkIndexBuilder';
 import { DepthSorterClient } from '../scene/depthSorterClient';
@@ -12,6 +14,10 @@ import { SortStateStore } from '../stores/sortStateStore';
 import { StatsOverlay } from '../debug/statsOverlay';
 
 const CONFIG = {
+  useRealPly: false,
+  useEllipseShader: false,
+  plyUrl: '/data/400w_3jie.ply',
+  batchSize: 65_536,
   maxActiveSplats: 90_000,
   sortTargetIntervalMs: 33,
   mockBatchSize: 20_000,
@@ -28,7 +34,7 @@ export async function bootstrap(): Promise<void> {
   document.body.style.margin = '0';
   document.body.appendChild(canvas);
 
-  const renderer = new SplatRendererWebGL2({ canvas });
+  const renderer = new SplatRendererWebGL2({ canvas, useEllipseShader: CONFIG.useEllipseShader });
   const overlay = new StatsOverlay();
 
   const cameraStore = new CameraStateStore(window.innerWidth / window.innerHeight);
@@ -39,19 +45,36 @@ export async function bootstrap(): Promise<void> {
   const input = new InputController(canvas);
   const fpsController = new BasicFpsController(cameraStore);
 
-  const ingest = new MockIngestScheduler();
+  const ingest = createPlyIngestScheduler({
+    useRealPly: CONFIG.useRealPly,
+    batchSize: CONFIG.batchSize
+  });
   const depthSorter = new DepthSorterClient();
   const chunkBuilder = new LinearChunkIndexBuilder();
   const visibility = new BudgetVisibilityScheduler();
 
   let uploadedSplats = 0;
   const chunkMeta: Array<{ id: number; start: number; count: number }> = [];
-  for (let i = 0; i < CONFIG.mockBatchCount; i += 1) {
-    const start = i * CONFIG.mockBatchSize;
-    const batch = await ingest.requestBatch(7, start, CONFIG.mockBatchSize);
-    gpuResidencyStore.addRange(renderer.uploadBatch(batch));
-    uploadedSplats += batch.count;
-    chunkMeta.push({ id: i, start, count: batch.count });
+  let ingestMetrics: PlyIngestMetrics | null = null;
+
+  if (ingest instanceof RealPlyIngestScheduler) {
+    let chunkId = 0;
+    ingestMetrics = await ingest.ingest(CONFIG.plyUrl, {
+      onBatch: (batch) => {
+        gpuResidencyStore.addRange(renderer.uploadBatch(batch));
+        uploadedSplats += batch.count;
+        chunkMeta.push({ id: chunkId, start: batch.start, count: batch.count });
+        chunkId += 1;
+      }
+    });
+  } else if (ingest instanceof MockIngestScheduler) {
+    for (let i = 0; i < CONFIG.mockBatchCount; i += 1) {
+      const start = i * CONFIG.mockBatchSize;
+      const batch = await ingest.requestBatch(7, start, CONFIG.mockBatchSize);
+      gpuResidencyStore.addRange(renderer.uploadBatch(batch));
+      uploadedSplats += batch.count;
+      chunkMeta.push({ id: i, start, count: batch.count });
+    }
   }
 
   const chunkTable = chunkBuilder.buildChunkIndex(chunkMeta);
@@ -100,7 +123,7 @@ export async function bootstrap(): Promise<void> {
 
     sortStateStore.swapIfReady();
     const frameStats = renderer.renderFrame(camera, sortStateStore.getFront(), uploadedSplats, dtMs);
-    overlay.update(frameStats, lastSortMs);
+    overlay.update(frameStats, lastSortMs, ingestMetrics);
 
     requestAnimationFrame(tick);
   };

@@ -46,6 +46,7 @@ export type FrameStats = {
   uploadedSplats: number;
   activeSplats: number;
   sortReady: boolean;
+  discardRatio?: number;
 };
 
 export type GpuHandleRange = {

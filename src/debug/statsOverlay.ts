@@ -1,4 +1,5 @@
 import type { FrameStats } from '../types';
+import type { PlyIngestMetrics } from '../ingest/plyProtocol';
 
 export class StatsOverlay {
   private readonly node: HTMLDivElement;
@@ -22,8 +23,8 @@ export class StatsOverlay {
     document.body.appendChild(this.node);
   }
 
-  update(stats: FrameStats, sortMs: number): void {
-    this.node.textContent = [
+  update(stats: FrameStats, sortMs: number, ingestMetrics?: PlyIngestMetrics | null): void {
+    const lines = [
       `fps: ${stats.fps.toFixed(1)}`,
       `dt_ms: ${stats.dtMs.toFixed(2)}`,
       `draw_ms: ${stats.drawMs.toFixed(2)}`,
@@ -31,7 +32,16 @@ export class StatsOverlay {
       `active_splats: ${stats.activeSplats}`,
       `uploaded_splats: ${stats.uploadedSplats}`,
       `sort_ready: ${stats.sortReady ? 'yes' : 'no'}`
-    ].join('\n');
+    ];
+    if (typeof stats.discardRatio === 'number') {
+      lines.push(`discard_ratio: ${(stats.discardRatio * 100).toFixed(1)}%`);
+    }
+    if (ingestMetrics) {
+      lines.push(`decode_ms_per_batch: ${ingestMetrics.decodeMsPerBatch.toFixed(2)}`);
+      lines.push(`decoded_splats_per_sec: ${ingestMetrics.decodedSplatsPerSec.toFixed(0)}`);
+      lines.push(`header_layout_hash: ${ingestMetrics.headerLayoutHash}`);
+    }
+    this.node.textContent = lines.join('\n');
     this.node.style.whiteSpace = 'pre';
   }
 }
