@@ -28,9 +28,11 @@ export class StatsOverlay {
       `fps: ${stats.fps.toFixed(1)}`,
       `dt_ms: ${stats.dtMs.toFixed(2)}`,
       `draw_ms: ${stats.drawMs.toFixed(2)}`,
+      `upload_ms: ${(stats.uploadMs ?? 0).toFixed(2)}`,
       `sort_ms: ${sortMs.toFixed(2)}`,
       `active_splats: ${stats.activeSplats}`,
       `uploaded_splats: ${stats.uploadedSplats}`,
+      `pending_batches: ${stats.pendingBatches ?? 0}`,
       `sort_ready: ${stats.sortReady ? 'yes' : 'no'}`
     ];
     if (typeof stats.discardRatio === 'number') {

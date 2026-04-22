@@ -19,6 +19,7 @@ const CONFIG = {
   plyUrl: '/data/400w_3jie.ply',
   batchSize: 65_536,
   maxActiveSplats: 90_000,
+  maxUploadBatchesPerFrame: 1,
   sortTargetIntervalMs: 33,
   mockBatchSize: 20_000,
   mockBatchCount: 4,
@@ -53,35 +54,47 @@ export async function bootstrap(): Promise<void> {
   const chunkBuilder = new LinearChunkIndexBuilder();
   const visibility = new BudgetVisibilityScheduler();
 
+  let chunkTable = chunkBuilder.buildChunkIndex([]);
   let uploadedSplats = 0;
+  let pendingBatches = 0;
+  let lastUploadMs = 0;
+  let chunkId = 0;
   const chunkMeta: Array<{ id: number; start: number; count: number }> = [];
   let ingestMetrics: PlyIngestMetrics | null = null;
 
-  if (ingest instanceof RealPlyIngestScheduler) {
-    let chunkId = 0;
-    ingestMetrics = await ingest.ingest(CONFIG.plyUrl, {
-      onBatch: (batch) => {
-        gpuResidencyStore.addRange(renderer.uploadBatch(batch));
-        uploadedSplats += batch.count;
-        chunkMeta.push({ id: chunkId, start: batch.start, count: batch.count });
-        chunkId += 1;
-      }
+  const refreshVisibleSet = (): void => {
+    const visibleSet = visibility.computeVisibleSet(cameraStore.get(), chunkTable, {
+      maxActiveSplats: CONFIG.maxActiveSplats
     });
+    sceneSetStore.setActiveIds(visibleSet.ids);
+  };
+
+  if (ingest instanceof RealPlyIngestScheduler) {
+    void ingest
+      .ingest(CONFIG.plyUrl, {
+        onBatch: (batch) => {
+          gpuResidencyStore.enqueuePendingBatch(batch);
+          pendingBatches = gpuResidencyStore.pendingBatchCount();
+        }
+      })
+      .then((metrics) => {
+        ingestMetrics = metrics;
+      })
+      .catch((error: unknown) => {
+        console.error('PLY ingest failed', error);
+      });
   } else if (ingest instanceof MockIngestScheduler) {
-    for (let i = 0; i < CONFIG.mockBatchCount; i += 1) {
-      const start = i * CONFIG.mockBatchSize;
-      const batch = await ingest.requestBatch(7, start, CONFIG.mockBatchSize);
-      gpuResidencyStore.addRange(renderer.uploadBatch(batch));
-      uploadedSplats += batch.count;
-      chunkMeta.push({ id: i, start, count: batch.count });
-    }
+    void (async () => {
+      for (let i = 0; i < CONFIG.mockBatchCount; i += 1) {
+        const start = i * CONFIG.mockBatchSize;
+        const batch = await ingest.requestBatch(7, start, CONFIG.mockBatchSize);
+        gpuResidencyStore.enqueuePendingBatch(batch);
+        pendingBatches = gpuResidencyStore.pendingBatchCount();
+      }
+    })();
   }
 
-  const chunkTable = chunkBuilder.buildChunkIndex(chunkMeta);
-  const visibleSet = visibility.computeVisibleSet(cameraStore.get(), chunkTable, {
-    maxActiveSplats: CONFIG.maxActiveSplats
-  });
-  sceneSetStore.setActiveIds(visibleSet.ids);
+  refreshVisibleSet();
 
   function resize(): void {
     const ratio = Math.min(window.devicePixelRatio || 1, CONFIG.devicePixelRatioClamp);
@@ -108,6 +121,20 @@ export async function bootstrap(): Promise<void> {
     const inputSnapshot = input.snapshot();
     const camera = fpsController.updateFpsController(inputSnapshot, dtMs / 1000);
 
+    const uploadDrain = gpuResidencyStore.drainPendingUploads(CONFIG.maxUploadBatchesPerFrame, (batch) => {
+      const range = renderer.uploadBatch(batch);
+      chunkMeta.push({ id: chunkId, start: range.start, count: range.count });
+      chunkId += 1;
+      return range;
+    });
+    lastUploadMs = uploadDrain.uploadMs;
+    pendingBatches = uploadDrain.pendingBatches;
+    if (uploadDrain.uploadedBatches > 0) {
+      uploadedSplats = uploadDrain.totalUploadedSplats;
+      chunkTable = chunkBuilder.buildChunkIndex(chunkMeta);
+      refreshVisibleSet();
+    }
+
     const shouldSort =
       now - camera.movedAtMs < 200 &&
       now - lastSortKick >= CONFIG.sortTargetIntervalMs &&
@@ -123,6 +150,8 @@ export async function bootstrap(): Promise<void> {
 
     sortStateStore.swapIfReady();
     const frameStats = renderer.renderFrame(camera, sortStateStore.getFront(), uploadedSplats, dtMs);
+    frameStats.uploadMs = lastUploadMs;
+    frameStats.pendingBatches = pendingBatches;
     overlay.update(frameStats, lastSortMs, ingestMetrics);
 
     requestAnimationFrame(tick);

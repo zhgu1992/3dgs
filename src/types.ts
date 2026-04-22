@@ -43,6 +43,8 @@ export type FrameStats = {
   fps: number;
   dtMs: number;
   drawMs: number;
+  uploadMs?: number;
+  pendingBatches?: number;
   uploadedSplats: number;
   activeSplats: number;
   sortReady: boolean;
@@ -52,6 +54,14 @@ export type FrameStats = {
 export type GpuHandleRange = {
   start: number;
   count: number;
+};
+
+export type UploadDrainStats = {
+  uploadMs: number;
+  uploadedBatches: number;
+  uploadedSplats: number;
+  pendingBatches: number;
+  totalUploadedSplats: number;
 };
 
 export interface PlyHeaderParser {
