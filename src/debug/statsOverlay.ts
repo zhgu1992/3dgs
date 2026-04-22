@@ -30,6 +30,8 @@ export class StatsOverlay {
       `draw_ms: ${stats.drawMs.toFixed(2)}`,
       `upload_ms: ${(stats.uploadMs ?? 0).toFixed(2)}`,
       `sort_ms: ${sortMs.toFixed(2)}`,
+      `sorted_count: ${stats.sortedCount ?? 0}`,
+      `sort_stall_frames: ${stats.sortStallFrames ?? 0}`,
       `active_splats: ${stats.activeSplats}`,
       `uploaded_splats: ${stats.uploadedSplats}`,
       `pending_batches: ${stats.pendingBatches ?? 0}`,

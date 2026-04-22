@@ -101,7 +101,10 @@ ctx.onmessage = (event: MessageEvent<PlyDecodeRequest>) => {
   const totalBytes = carryBytes.byteLength + chunkBytes.byteLength;
   const decodedCount = Math.min(msg.maxVertices, msg.remainingVertices, Math.floor(totalBytes / msg.layout.stride));
 
+  // 首版 2E 渲染只消费以下字段：position / scale(log) / rotation(quat) / sh0(rgb) / opacity。
   const positions = new Float32Array(decodedCount * 3);
+  const scales = new Float32Array(decodedCount * 3);
+  const rotations = new Float32Array(decodedCount * 4);
   const colors = new Float32Array(decodedCount * 3);
   const opacities = new Float32Array(decodedCount);
 
@@ -115,6 +118,17 @@ ctx.onmessage = (event: MessageEvent<PlyDecodeRequest>) => {
     positions[positionBase] = readFloat32LE(carryBytes, chunkBytes, carryLength, vertexOffset + offsets.x);
     positions[positionBase + 1] = readFloat32LE(carryBytes, chunkBytes, carryLength, vertexOffset + offsets.y);
     positions[positionBase + 2] = readFloat32LE(carryBytes, chunkBytes, carryLength, vertexOffset + offsets.z);
+
+    scales[positionBase] = readFloat32LE(carryBytes, chunkBytes, carryLength, vertexOffset + offsets.scale_0);
+    scales[positionBase + 1] = readFloat32LE(carryBytes, chunkBytes, carryLength, vertexOffset + offsets.scale_1);
+    scales[positionBase + 2] = readFloat32LE(carryBytes, chunkBytes, carryLength, vertexOffset + offsets.scale_2);
+
+    // rot_0..3 按原始顺序透传，后续在渲染阶段统一归一化并按四元数使用。
+    const rotationBase = i * 4;
+    rotations[rotationBase] = readFloat32LE(carryBytes, chunkBytes, carryLength, vertexOffset + offsets.rot_0);
+    rotations[rotationBase + 1] = readFloat32LE(carryBytes, chunkBytes, carryLength, vertexOffset + offsets.rot_1);
+    rotations[rotationBase + 2] = readFloat32LE(carryBytes, chunkBytes, carryLength, vertexOffset + offsets.rot_2);
+    rotations[rotationBase + 3] = readFloat32LE(carryBytes, chunkBytes, carryLength, vertexOffset + offsets.rot_3);
 
     colors[positionBase] = readFloat32LE(carryBytes, chunkBytes, carryLength, vertexOffset + offsets.f_dc_0);
     colors[positionBase + 1] = readFloat32LE(carryBytes, chunkBytes, carryLength, vertexOffset + offsets.f_dc_1);
@@ -131,6 +145,8 @@ ctx.onmessage = (event: MessageEvent<PlyDecodeRequest>) => {
       start: msg.start,
       count: decodedCount,
       positions,
+      scales,
+      rotations,
       colors,
       opacities
     },
@@ -138,7 +154,7 @@ ctx.onmessage = (event: MessageEvent<PlyDecodeRequest>) => {
     decodeMs: performance.now() - startMs
   };
 
-  const transferables: ArrayBuffer[] = [positions.buffer, colors.buffer, opacities.buffer];
+  const transferables: ArrayBuffer[] = [positions.buffer, scales.buffer, rotations.buffer, colors.buffer, opacities.buffer];
   // 批次数组与 carry 都走 transferable，减少 worker 往返拷贝成本。
   if (response.nextCarry && response.nextCarry.buffer instanceof ArrayBuffer) {
     transferables.push(response.nextCarry.buffer);

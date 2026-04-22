@@ -15,6 +15,8 @@ import { StatsOverlay } from '../debug/statsOverlay';
 
 const CONFIG = {
   useRealPly: true,
+  useRadixSort: true,
+  useVisibilityBudget: true,
   useEllipseShader: true,
   plyUrl: '/data/400w_3jie.ply',
   batchSize: 65_536,
@@ -65,6 +67,15 @@ export async function bootstrap(): Promise<void> {
 
   // 2C 之前先走线性 chunk，可见集在每次驻留更新后重算。
   const refreshVisibleSet = (): void => {
+    if (!CONFIG.useVisibilityBudget) {
+      const ids = new Uint32Array(uploadedSplats);
+      for (let i = 0; i < uploadedSplats; i += 1) {
+        ids[i] = i;
+      }
+      sceneSetStore.setActiveIds(ids);
+      return;
+    }
+
     const visibleSet = visibility.computeVisibleSet(cameraStore.get(), chunkTable, {
       maxActiveSplats: CONFIG.maxActiveSplats
     });
@@ -116,6 +127,8 @@ export async function bootstrap(): Promise<void> {
   let previousTime = performance.now();
   let lastSortKick = 0;
   let lastSortMs = 0;
+  let lastSortedCount = 0;
+  let sortStallFrames = 0;
 
   const tick = (): void => {
     const now = performance.now();
@@ -142,6 +155,7 @@ export async function bootstrap(): Promise<void> {
     }
 
     const shouldSort =
+      CONFIG.useRadixSort &&
       now - camera.movedAtMs < 200 &&
       now - lastSortKick >= CONFIG.sortTargetIntervalMs &&
       !depthSorter.isBusy();
@@ -152,13 +166,22 @@ export async function bootstrap(): Promise<void> {
       void depthSorter.sort(sceneSetStore.getActiveIds(), renderer.getPositions(), camera).then((result) => {
         sortStateStore.setBack(result.indices);
         lastSortMs = result.sortMs;
+        lastSortedCount = result.indices.length;
       });
     }
 
-    sortStateStore.swapIfReady();
-    const frameStats = renderer.renderFrame(camera, sortStateStore.getFront(), uploadedSplats, dtMs);
+    const swapped = sortStateStore.swapIfReady();
+    const frontIndices = CONFIG.useRadixSort ? sortStateStore.getFront() : null;
+
+    if (CONFIG.useRadixSort && now - camera.movedAtMs < 200 && depthSorter.isBusy() && !swapped && frontIndices !== null) {
+      sortStallFrames += 1;
+    }
+
+    const frameStats = renderer.renderFrame(camera, frontIndices, uploadedSplats, dtMs);
     frameStats.uploadMs = lastUploadMs;
     frameStats.pendingBatches = pendingBatches;
+    frameStats.sortedCount = CONFIG.useRadixSort ? lastSortedCount : sceneSetStore.getActiveIds().length;
+    frameStats.sortStallFrames = CONFIG.useRadixSort ? sortStallFrames : 0;
     overlay.update(frameStats, lastSortMs, ingestMetrics);
 
     requestAnimationFrame(tick);

@@ -5,6 +5,8 @@ type DecodeResponse = {
   start: number;
   count: number;
   positions: Float32Array;
+  scales: Float32Array;
+  rotations: Float32Array;
   colors: Float32Array;
   opacities: Float32Array;
 };
@@ -29,6 +31,8 @@ export class MockIngestScheduler {
           start: msg.start,
           count: msg.count,
           positions: msg.positions,
+          scales: msg.scales,
+          rotations: msg.rotations,
           colors: msg.colors,
           opacities: msg.opacities
         });

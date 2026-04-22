@@ -10,6 +10,8 @@ export type DecodedBatch = {
   start: number;
   count: number;
   positions: Float32Array;
+  scales: Float32Array;
+  rotations: Float32Array;
   colors: Float32Array;
   opacities: Float32Array;
 };
@@ -48,6 +50,8 @@ export type FrameStats = {
   uploadedSplats: number;
   activeSplats: number;
   sortReady: boolean;
+  sortedCount?: number;
+  sortStallFrames?: number;
   discardRatio?: number;
 };
 
